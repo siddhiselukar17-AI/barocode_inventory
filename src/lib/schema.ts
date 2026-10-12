@@ -1,5 +1,5 @@
 import mysql from "mysql2/promise";
-import { DatabaseNotConfiguredError, execute } from "@/lib/db";
+import { execute, parseDatabaseUrl } from "@/lib/db";
 
 const IMMUTABLE_MSG = "Inventory transactions are immutable. Create an ADJUSTMENT transaction instead.";
 
@@ -73,6 +73,14 @@ export const SCHEMA_STATEMENTS: string[] = [
     CONSTRAINT chk_tx_stock CHECK (stock_before >= 0 AND stock_after >= 0)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
+  // Shared (cross-instance) login rate limiting.
+  `CREATE TABLE IF NOT EXISTS rate_limits (
+    rl_key VARCHAR(190) NOT NULL,
+    hits INT NOT NULL DEFAULT 0,
+    reset_at DATETIME(3) NOT NULL,
+    PRIMARY KEY (rl_key)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
   // History is append-only, enforced by the database itself.
   `DROP TRIGGER IF EXISTS trg_tx_no_update`,
   `CREATE TRIGGER trg_tx_no_update BEFORE UPDATE ON inventory_transactions FOR EACH ROW
@@ -82,21 +90,15 @@ export const SCHEMA_STATEMENTS: string[] = [
      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '${IMMUTABLE_MSG}'`,
 ];
 
-/** Creates the database (if the user may) and all tables/triggers. Idempotent. */
+/** Creates the database (if the user may) and all tables/triggers. Idempotent. Never drops anything. */
 export async function ensureSchema() {
-  const raw = process.env.DATABASE_URL?.trim();
-  if (!raw) throw new DatabaseNotConfiguredError();
-
-  const url = new URL(raw);
-  const dbName = decodeURIComponent(url.pathname.replace(/^\//, ""));
+  const { database: dbName, ...server } = parseDatabaseUrl();
   if (!/^[A-Za-z0-9_]+$/.test(dbName)) {
     throw new Error("DATABASE_URL must end with a database name using only letters, numbers and underscores.");
   }
 
-  // Connect without a database to create it if needed.
-  const server = new URL(raw);
-  server.pathname = "/";
-  const conn = await mysql.createConnection({ uri: server.toString(), connectTimeout: 8000 });
+  // Connect without a database to create it if needed (CREATE DATABASE IF NOT EXISTS never overwrites).
+  const conn = await mysql.createConnection({ ...server, connectTimeout: 10_000 });
   try {
     await conn.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4`);
   } catch (e) {

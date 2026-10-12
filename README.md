@@ -35,12 +35,15 @@ npm run seed           # optional: 4 demo products, initial stock recorded as ST
 ```
 After the admin exists, delete `ADMIN_PASSWORD` from `.env.local`. For a separate test account, run `create-admin` again with a different `ADMIN_EMAIL`.
 
+> **Going live?** See [DEPLOY.md](DEPLOY.md) for Vercel + hosted MySQL.
+
 ## Scripts
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Development server |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run build` / `npm start` | Production build / server |
+| `npm run db:check` | Read-only connection / table check |
 | `npm run db:setup` | Create database, tables and triggers |
 | `npm run create-admin` | Create the first admin |
 | `npm run seed` | Seed demo products (idempotent) |
